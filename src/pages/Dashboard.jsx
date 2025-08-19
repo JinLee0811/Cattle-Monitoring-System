@@ -1,11 +1,43 @@
 import { useState, useEffect } from "react";
 import VideoPlayer from "../components/VideoPlayer";
 import LogPanel from "../components/LogPanel";
-import { mockCameras, mockSystemStatus } from "../utils/mockData";
+import { mockCameras } from "../utils/mockData";
+
+const USE_WEATHER_MOCK = true; // 백엔드 없이 임시 데이터 사용
+
+const mockWeatherData = {
+  current: {
+    temperature: 24,
+    humidity: 62,
+    pressure: 1014,
+    description: "clear sky",
+    icon: "01d",
+    windSpeed: 3.6,
+    rain: 0,
+  },
+  location: {
+    name: "Sydney",
+    country: "AU",
+    lat: -33.8688,
+    lon: 151.2093,
+  },
+  alerts: [
+    {
+      type: "cattle_heat_stress",
+      severity: "low",
+      message: "Warm conditions - Ensure shade and water are available",
+    },
+  ],
+  timestamp: new Date().toISOString(),
+  is_mock: true,
+};
 
 const Dashboard = () => {
   const [currentTime, setCurrentTime] = useState(new Date());
   const [selectedCamera, setSelectedCamera] = useState(1);
+  const [weather, setWeather] = useState(null);
+  const [loadingWeather, setLoadingWeather] = useState(true);
+  const [weatherError, setWeatherError] = useState(null);
 
   // Update current time
   useEffect(() => {
@@ -14,6 +46,48 @@ const Dashboard = () => {
     }, 1000);
 
     return () => clearInterval(timer);
+  }, []);
+
+  // Fetch current weather using geolocation (fallback to Sydney)
+  useEffect(() => {
+    if (USE_WEATHER_MOCK) {
+      setWeather(mockWeatherData);
+      setLoadingWeather(false);
+      setWeatherError(null);
+      return;
+    }
+
+    const defaultCoords = { lat: -33.8688, lon: 151.2093 };
+
+    const fetchWeather = async (lat, lon) => {
+      try {
+        setLoadingWeather(true);
+        setWeatherError(null);
+        const res = await fetch(`http://localhost:5000/api/weather/current?lat=${lat}&lon=${lon}`);
+        if (!res.ok) throw new Error(`Weather request failed: ${res.status}`);
+        const data = await res.json();
+        setWeather(data);
+      } catch {
+        // 실패 시 모의 데이터로 대체
+        setWeather(mockWeatherData);
+        setWeatherError(null);
+      } finally {
+        setLoadingWeather(false);
+      }
+    };
+
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          const { latitude, longitude } = pos.coords;
+          fetchWeather(latitude, longitude);
+        },
+        () => fetchWeather(defaultCoords.lat, defaultCoords.lon),
+        { maximumAge: 10 * 60 * 1000, timeout: 5000 }
+      );
+    } else {
+      fetchWeather(defaultCoords.lat, defaultCoords.lon);
+    }
   }, []);
 
   const formatTime = (date) => {
@@ -96,6 +170,61 @@ const Dashboard = () => {
 
             {/* System status cards */}
             <div className='space-y-6'>
+              {/* Weather (simple) */}
+              <div className='bg-slate-800 rounded-lg p-6'>
+                <h3 className='text-lg font-bold text-white mb-4'>Weather & Alerts</h3>
+                {loadingWeather ? (
+                  <div className='text-sm text-gray-400'>Loading weather...</div>
+                ) : weatherError ? (
+                  <div className='text-sm text-red-400'>Failed to load weather</div>
+                ) : weather ? (
+                  <div className='space-y-3'>
+                    <div className='flex items-center justify-between'>
+                      <div className='flex items-end space-x-3'>
+                        <div className='text-2xl font-bold text-white'>
+                          {Math.round(weather.current?.temperature)}°C
+                        </div>
+                        <div className='text-sm text-gray-400 capitalize'>
+                          {weather.current?.description}
+                        </div>
+                      </div>
+                      {weather.current?.icon && (
+                        <img
+                          alt='icon'
+                          className='w-10 h-10'
+                          src={`https://openweathermap.org/img/wn/${weather.current.icon}@2x.png`}
+                        />
+                      )}
+                    </div>
+                    <div className='text-xs text-gray-500'>
+                      {weather.location?.name}, {weather.location?.country}
+                    </div>
+                    {Array.isArray(weather.alerts) && weather.alerts.length > 0 ? (
+                      <div className='space-y-2 max-h-40 overflow-y-auto'>
+                        {weather.alerts.slice(0, 4).map((a, idx) => (
+                          <div
+                            key={idx}
+                            className={`text-xs rounded-md border px-3 py-2 ${
+                              a.severity === "high"
+                                ? "border-red-400/30 bg-red-400/10 text-red-300"
+                                : a.severity === "medium"
+                                  ? "border-yellow-400/30 bg-yellow-400/10 text-yellow-300"
+                                  : "border-blue-400/30 bg-blue-400/10 text-blue-300"
+                            }`}
+                          >
+                            {a.message}
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className='text-xs text-gray-400'>No alerts</div>
+                    )}
+                  </div>
+                ) : (
+                  <div className='text-sm text-gray-400'>No weather data</div>
+                )}
+              </div>
+
               {/* Camera status */}
               <div className='bg-slate-800 rounded-lg p-6'>
                 <h3 className='text-lg font-bold text-white mb-4'>Camera Status</h3>
@@ -123,50 +252,6 @@ const Dashboard = () => {
                       </div>
                     </div>
                   ))}
-                </div>
-              </div>
-
-              {/* System resources */}
-              <div className='bg-slate-800 rounded-lg p-6'>
-                <h3 className='text-lg font-bold text-white mb-4'>System Resources</h3>
-                <div className='space-y-4'>
-                  <div>
-                    <div className='flex justify-between text-sm mb-1'>
-                      <span className='text-gray-400'>CPU Usage</span>
-                      <span className='text-white'>{mockSystemStatus.cpuUsage}</span>
-                    </div>
-                    <div className='w-full bg-slate-700 rounded-full h-2'>
-                      <div
-                        className='bg-farm-green h-2 rounded-full transition-all'
-                        style={{ width: mockSystemStatus.cpuUsage }}></div>
-                    </div>
-                  </div>
-
-                  <div>
-                    <div className='flex justify-between text-sm mb-1'>
-                      <span className='text-gray-400'>Memory Usage</span>
-                      <span className='text-white'>{mockSystemStatus.memoryUsage}</span>
-                    </div>
-                    <div className='w-full bg-slate-700 rounded-full h-2'>
-                      <div
-                        className='bg-blue-500 h-2 rounded-full transition-all'
-                        style={{ width: mockSystemStatus.memoryUsage }}></div>
-                    </div>
-                  </div>
-
-                  <div>
-                    <div className='flex justify-between text-sm mb-1'>
-                      <span className='text-gray-400'>Storage</span>
-                      <span className='text-white'>
-                        {mockSystemStatus.usedStorage} / {mockSystemStatus.totalStorage}
-                      </span>
-                    </div>
-                    <div className='w-full bg-slate-700 rounded-full h-2'>
-                      <div
-                        className='bg-yellow-500 h-2 rounded-full transition-all'
-                        style={{ width: "72%" }}></div>
-                    </div>
-                  </div>
                 </div>
               </div>
             </div>
