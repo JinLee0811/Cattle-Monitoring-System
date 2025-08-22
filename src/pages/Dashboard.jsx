@@ -210,8 +210,7 @@ const Dashboard = () => {
                                 : a.severity === "medium"
                                   ? "border-yellow-400/30 bg-yellow-400/10 text-yellow-300"
                                   : "border-blue-400/30 bg-blue-400/10 text-blue-300"
-                            }`}
-                          >
+                            }`}>
                             {a.message}
                           </div>
                         ))}
